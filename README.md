@@ -128,6 +128,3 @@ Four assembly archetypes with parametric tolerance defects:
 | PointNet + Covariance | Object detection only | Multi-part relationship learning |
 | JoinABLe (CVPR 2022) | Joint prediction only, B-Rep | Point cloud fit quality + tolerance |
 
-## 📜 License
-
-This project is developed as a BTech Final Year Project at PCCOE.
