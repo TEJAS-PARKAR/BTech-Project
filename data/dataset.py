@@ -155,7 +155,8 @@ class AssemblyFitDataset(Dataset):
 
 
 def create_dataloaders(data_dir: str, batch_size: int = 16,
-                       num_points: int = 2048, num_workers: int = 0
+                       num_points: int = 2048, num_workers: int = 0,
+                       pin_memory: bool = False
                        ) -> Dict[str, DataLoader]:
     """
     Create train, val, and test DataLoaders.
@@ -172,7 +173,7 @@ def create_dataloaders(data_dir: str, batch_size: int = 16,
             batch_size=batch_size,
             shuffle=(split == "train"),
             num_workers=num_workers,
-            pin_memory=True,
+            pin_memory=pin_memory,
             drop_last=(split == "train"),
         )
     return loaders

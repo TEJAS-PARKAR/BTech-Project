@@ -4,7 +4,7 @@
 
 # ----- Data Settings -----
 data:
-  num_points: 2048          # Number of points sampled per assembly
+  num_points: 1024          # Number of points sampled per assembly
   num_assemblies_train: 3000  # Number of synthetic assemblies for training
   num_assemblies_val: 600     # Number of synthetic assemblies for validation
   num_assemblies_test: 400    # Number of synthetic assemblies for testing
@@ -46,8 +46,8 @@ model:
 
 # ----- Training Settings -----
 training:
-  epochs: 100
-  batch_size: 16
+  epochs: 30
+  batch_size: 4
   learning_rate: 0.001
   weight_decay: 0.0001
   lr_scheduler: cosine       # Options: cosine, step, plateau

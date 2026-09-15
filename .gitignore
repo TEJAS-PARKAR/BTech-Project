@@ -1,0 +1,26 @@
+# Generated synthetic point-cloud data
+data/samples/
+
+# Training outputs and checkpoints
+checkpoints/
+
+# Python caches and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local environments and configuration
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# Experiment and application logs
+*.log
+
+# OS and editor metadata
+.DS_Store
+.vscode/

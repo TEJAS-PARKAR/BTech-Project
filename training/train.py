@@ -181,6 +181,7 @@ def train(config_path: str = "training/config.yaml"):
         batch_size=train_cfg["batch_size"],
         num_points=data_cfg["num_points"],
         num_workers=0,
+        pin_memory=(device.type == "cuda"),
     )
 
     # ── Step 3: Create model ──
