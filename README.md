@@ -1,6 +1,5 @@
 # Assembly Fit Risk Prediction using PointNet++
 
-> **BTech Final Year Project**
 > Deep Learning-based Assembly Fit Risk Assessment from 3D Point Clouds
 
 ---
@@ -113,18 +112,4 @@ Four assembly archetypes with parametric tolerance defects:
 | Peg-in-Hole | Prismatic insertion | Interference/clearance, eccentricity |
 | Dovetail | Sliding joint | Width deviation, misalignment |
 
-## 📈 Research Gaps Overcome
-
-| Paper | Limitation | Our Solution |
-|-------|-----------|-------------|
-| 3D Point Cloud + ICP | No deep learning, alignment only | PointNet++ with learned features |
-| Assembly Integrity (Faster R-CNN) | 2D images, missing parts only | 3D point clouds, fit quality prediction |
-| AssemblyNet (PointNet++) | Disassembly direction only | Fit risk + interference + clearance |
-| Quality Inspection (PointNet++) | Post-assembly only | Pre-assembly risk prediction |
-| DCP (Transformer) | Registration only | Risk prediction with geometric relationships |
-| Gap Measurement (PolyWorks) | Manual, gaps only | Automated multi-risk prediction |
-| PointNet++ (Qi et al.) | Classification/segmentation | Assembly fit risk prediction |
-| PointNetLK | Registration, no PointNet++ | Richer features + risk levels |
-| PointNet + Covariance | Object detection only | Multi-part relationship learning |
-| JoinABLe (CVPR 2022) | Joint prediction only, B-Rep | Point cloud fit quality + tolerance |
 

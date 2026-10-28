@@ -1,8 +1,6 @@
 # Generated synthetic point-cloud data
 data/samples/
 
-# Training outputs and checkpoints
-checkpoints/
 
 # Python caches and test artifacts
 __pycache__/
