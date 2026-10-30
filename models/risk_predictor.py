@@ -122,7 +122,8 @@ class MultiTaskLoss(nn.Module):
       + λ₄·BCE(failure)      + λ₅·CE(risk_level)
     """
 
-    def __init__(self, weights: Dict[str, float] = None):
+    def __init__(self, weights: Dict[str, float] = None,
+                 class_weights: torch.Tensor = None):
         super().__init__()
         if weights is None:
             weights = {
@@ -135,7 +136,7 @@ class MultiTaskLoss(nn.Module):
         self.weights = weights
         self.mse = nn.MSELoss()
         self.bce = nn.BCELoss()
-        self.ce = nn.CrossEntropyLoss()
+        self.ce = nn.CrossEntropyLoss(weight=class_weights)
 
     def forward(self, predictions: Dict[str, torch.Tensor],
                 targets: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, Dict[str, float]]:

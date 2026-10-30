@@ -230,7 +230,23 @@ if input_mode == "Generate Sample":
         st.session_state.point_cloud = None
         st.session_state.labels = None
 
-    if generate_btn:
+    if "generated_params" not in st.session_state:
+        st.session_state.generated_params = None
+
+    current_params = {
+        "assembly_type": assembly_type,
+        "n_points": n_points,
+        "radial_dev": radial_dev,
+        "tilt_angle": tilt_angle,
+        "lateral_offset": lateral_offset,
+        "noise_std": noise_std,
+    }
+    params_changed = (
+        st.session_state.point_cloud is not None
+        and current_params != st.session_state.generated_params
+    )
+
+    if generate_btn or params_changed:
         from data.dataset_generator import AssemblyConfig, _compute_risk_labels
 
         cfg = AssemblyConfig(
@@ -261,6 +277,7 @@ if input_mode == "Generate Sample":
 
         st.session_state.point_cloud = pc
         st.session_state.labels = gt_labels
+        st.session_state.generated_params = current_params
 
     point_cloud = st.session_state.point_cloud
     labels = st.session_state.labels

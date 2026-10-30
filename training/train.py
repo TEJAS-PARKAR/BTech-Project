@@ -71,6 +71,19 @@ def create_scheduler(optimizer: optim.Optimizer, config: Dict):
     return scheduler, sched_type
 
 
+def get_risk_class_weights(dataset) -> torch.Tensor:
+    """Compute mean-one inverse-frequency weights from the training split."""
+    risk_levels = [dataset.all_labels[index]["risk_level"]
+                   for index in dataset.indices]
+    class_counts = np.bincount(risk_levels, minlength=3)
+    class_weights = class_counts.sum() / (
+        len(class_counts) * np.maximum(class_counts, 1))
+    print(f"[Train] Risk-level counts: {class_counts.tolist()}")
+    print(f"[Train] Risk-level loss weights: "
+          f"{class_weights.round(3).tolist()}")
+    return torch.tensor(class_weights, dtype=torch.float32)
+
+
 def train_one_epoch(model: nn.Module, loader: DataLoader,
                     criterion: MultiTaskLoss, optimizer: optim.Optimizer,
                     device: torch.device, epoch: int,
@@ -200,7 +213,11 @@ def train(config_path: str = "training/config.yaml"):
         print(f"  {k}: {v:,}")
 
     # ── Step 4: Loss, optimizer, scheduler ──
-    criterion = MultiTaskLoss(weights=train_cfg.get("loss_weights"))
+    class_weights = get_risk_class_weights(loaders["train"].dataset)
+    criterion = MultiTaskLoss(
+        weights=train_cfg.get("loss_weights"),
+        class_weights=class_weights,
+    ).to(device)
     optimizer = create_optimizer(model, config)
     scheduler, sched_type = create_scheduler(optimizer, config)
 
