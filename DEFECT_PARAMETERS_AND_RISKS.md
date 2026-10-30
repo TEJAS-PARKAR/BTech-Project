@@ -68,3 +68,13 @@ Tilt and lateral offset are applied to one part across the generators and contri
 When model inference is off for a generated sample, the dashboard displays the generator's formula-based labels. When model inference is on, it displays model predictions instead. For uploaded point clouds, the app has no ground-truth labels unless they are supplied separately; displayed risk values should therefore be treated as model outputs, not verified measurements.
 
 These synthetic scores are useful for controlled experiments and training, but they are not calibrated against real failure data and do not implement a tolerance standard, contact analysis, material model, or load condition. Do not use them alone to approve a real assembly or make safety-critical decisions.
+
+## CAD Mesh Conversion
+
+Choose **Convert CAD Mesh** in the dashboard's Input Mode selector, upload Part A and Part B separately, and choose 2048 or 4096 output points. Select **Auto-fit parts** to search for up to three candidate placements. The solver uses rigid rotations and translations only; it does not scale or deform either part. Choose a suggested placement to view its combined point cloud.
+
+Supported tessellated mesh exports are STL, OBJ, PLY, GLB, and GLTF. Each upload must represent one watertight solid; a scene containing multiple objects within one upload is combined as one part. Sampling is distributed by triangle surface area, and each sampled point receives its triangle's face normal. The conversion keeps coordinate values and scene transforms; it does not infer physical units. 2048 points is the lighter inference option; 4096 gives denser surface sampling at higher compute cost.
+
+The generic fit search starts from principal-axis and face-to-face placements, then optimizes opposing-surface contact while penalizing overlap in filled voxel grids. It is a heuristic candidate search, not a guaranteed global optimum or a recognition of functional mating intent. The reported voxel-overlap percentage depends on the displayed voxel resolution. Opposing-surface contact and the 5th-percentile gap are computed from sampled mesh surfaces. These are geometry indicators, not calibrated failure probabilities or tolerance checks; confirm the selected pose and units before engineering use.
+
+This process samples the supplied triangle mesh, not the original CAD surfaces, so fidelity depends on CAD tessellation quality. Native STEP and IGES files are not read directly; export them to a supported mesh format first. Automatic fitting requires closed, watertight solids so the voxel grid can approximate occupied volume.

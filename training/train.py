@@ -22,6 +22,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from typing import Dict, Optional
+from sklearn.metrics import balanced_accuracy_score, f1_score
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -133,8 +134,8 @@ def validate(model: nn.Module, loader: DataLoader,
     model.eval()
     total_losses = {}
     num_batches = 0
-    correct = 0
-    total = 0
+    all_predictions = []
+    all_targets = []
 
     for point_clouds, labels in loader:
         point_clouds = point_clouds.to(device)
@@ -147,12 +148,16 @@ def validate(model: nn.Module, loader: DataLoader,
             total_losses[k] = total_losses.get(k, 0) + v
         num_batches += 1
 
-        # Classification accuracy
-        correct += (predictions["risk_level"] == labels["risk_level"]).sum().item()
-        total += labels["risk_level"].shape[0]
+        all_predictions.append(predictions["risk_level"].cpu().numpy())
+        all_targets.append(labels["risk_level"].cpu().numpy())
 
     avg_losses = {k: v / num_batches for k, v in total_losses.items()}
-    avg_losses["classification_accuracy"] = correct / max(total, 1)
+    targets = np.concatenate(all_targets)
+    predictions = np.concatenate(all_predictions)
+    avg_losses["classification_accuracy"] = float(np.mean(predictions == targets))
+    avg_losses["f1_macro"] = f1_score(
+        targets, predictions, labels=[0, 1, 2], average="macro", zero_division=0)
+    avg_losses["balanced_accuracy"] = balanced_accuracy_score(targets, predictions)
     return avg_losses
 
 
@@ -226,6 +231,7 @@ def train(config_path: str = "training/config.yaml"):
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     best_val_loss = float("inf")
+    best_val_macro_f1 = -1.0
     patience_counter = 0
     patience = train_cfg.get("early_stopping_patience", 15)
     warmup_epochs = train_cfg.get("warmup_epochs", 5)
@@ -263,7 +269,9 @@ def train(config_path: str = "training/config.yaml"):
               f"({epoch_time:.1f}s) lr={current_lr:.6f}")
         print(f"  Train Loss: {train_losses['total_loss']:.4f}")
         print(f"  Val   Loss: {val_losses['total_loss']:.4f}  "
-              f"Accuracy: {val_losses['classification_accuracy']:.2%}")
+              f"Accuracy: {val_losses['classification_accuracy']:.2%}  "
+              f"Macro-F1: {val_losses['f1_macro']:.4f}  "
+              f"Balanced Acc: {val_losses['balanced_accuracy']:.4f}")
         print(f"{'='*70}\n")
 
         history["train"].append(train_losses)
@@ -277,8 +285,16 @@ def train(config_path: str = "training/config.yaml"):
                 scheduler.step()
 
         # Checkpointing
-        if val_losses["total_loss"] < best_val_loss:
+        improved = (
+            val_losses["f1_macro"] > best_val_macro_f1 + 1e-6
+            or (
+                np.isclose(val_losses["f1_macro"], best_val_macro_f1, atol=1e-6)
+                and val_losses["total_loss"] < best_val_loss
+            )
+        )
+        if improved:
             best_val_loss = val_losses["total_loss"]
+            best_val_macro_f1 = val_losses["f1_macro"]
             patience_counter = 0
             if train_cfg.get("save_best", True):
                 save_path = os.path.join(checkpoint_dir, "best_model.pth")
@@ -287,6 +303,8 @@ def train(config_path: str = "training/config.yaml"):
                     "model_state_dict": model.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
                     "val_loss": best_val_loss,
+                    "val_macro_f1": best_val_macro_f1,
+                    "val_balanced_accuracy": val_losses["balanced_accuracy"],
                     "config": config,
                 }, save_path)
                 print(f"  ✓ Saved best model (val_loss={best_val_loss:.4f})")

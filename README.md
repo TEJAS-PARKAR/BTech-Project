@@ -47,6 +47,7 @@ btechproject/
 │   └── config.yaml               # Hyperparameters
 ├── visualizer/
 │   ├── app.py                    # Streamlit interactive dashboard
+│   ├── cad_utils.py              # CAD mesh sampling and rigid auto-fit
 │   └── plot_utils.py             # 3D Plotly visualization utilities
 ├── experiments/
 │   └── benchmark_comparison.py   # Baseline comparison
@@ -75,6 +76,14 @@ python experiments/benchmark_comparison.py
 # Launch interactive dashboard
 streamlit run visualizer/app.py
 ```
+
+## Auto-Fit Two CAD Parts
+
+The dashboard uses the same launch command above. In **Input Mode**, choose **Convert CAD Mesh**, upload Part A and Part B as separate files, choose 2048 or 4096 output points, then select **Auto-fit parts**. The app searches for up to three rigid placement candidates; choose one under **Suggested Placement** to view the combined point cloud and geometry indicators.
+
+Supported mesh formats are STL, OBJ, PLY, GLB, and GLTF. Each uploaded file must contain one watertight solid. Native STEP and IGES files must first be exported to one of these tessellated mesh formats. Auto-fit changes only rotation and translation, not part dimensions. The solver is a heuristic, not a guarantee of functional mating; units are taken from the uploaded files and are not inferred. Overlap, contact, and gap values are approximate geometry indicators, not calibrated failure probabilities or tolerance checks.
+
+The auto-fit implementation uses the existing `scipy` and `trimesh` dependencies in `requirements.txt`; no separate CAD fitting command or additional package installation is needed. After changing dependencies, install them with `pip install -r requirements.txt` and launch the dashboard with `streamlit run visualizer/app.py`.
 
 ## 🏗️ Architecture Details
 
