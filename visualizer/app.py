@@ -14,6 +14,7 @@ Features:
 import os
 import sys
 import json
+import hashlib
 import numpy as np
 import torch
 import streamlit as st
@@ -32,6 +33,7 @@ from visualizer.plot_utils import (
     RISK_COLORS,
 )
 
+
 # ──────────────────────────────────────────────
 # Page configuration
 # ──────────────────────────────────────────────
@@ -41,6 +43,14 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+
+@st.cache_data(show_spinner="Searching rigid fit candidates...")
+def _auto_fit_cad_uploads(filename_a, data_a, filename_b, data_b, num_points):
+    from visualizer.cad_utils import auto_fit_mesh_pair
+
+    return auto_fit_mesh_pair(filename_a, data_a, filename_b, data_b, num_points)
+
 
 # ──────────────────────────────────────────────
 # Custom CSS for premium dark theme
@@ -164,8 +174,12 @@ st.markdown("""
 with st.sidebar:
     st.markdown("## ⚙️ Controls")
 
-    input_mode = st.radio("Input Mode", ["Generate Sample", "Upload File"],
-                          index=0, key="input_mode")
+    input_mode = st.radio(
+        "Input Mode",
+        ["Generate Sample", "Upload Point Cloud", "Convert CAD Mesh"],
+        index=0,
+        key="input_mode",
+    )
 
     if input_mode == "Generate Sample":
         assembly_type = st.selectbox(
@@ -187,11 +201,40 @@ with st.sidebar:
 
         generate_btn = st.button("🚀 Generate Assembly", use_container_width=True,
                                   type="primary")
-    else:
+    elif input_mode == "Upload Point Cloud":
         uploaded_file = st.file_uploader(
             "Upload Point Cloud (.npy)",
             type=["npy"],
             help="NumPy array of shape (N, 7): [x,y,z,nx,ny,nz,part_id]",
+        )
+    else:
+        cad_point_count = st.selectbox(
+            "Output Point Count",
+            [2048, 4096],
+            index=0,
+            help="4096 gives denser surface coverage and takes more inference compute.",
+        )
+        part_a_file = st.file_uploader(
+            "Part A",
+            type=["stl", "obj", "ply", "glb", "gltf"],
+            key="cad_part_a",
+            help="Upload one watertight triangle-mesh solid.",
+        )
+        part_b_file = st.file_uploader(
+            "Part B",
+            type=["stl", "obj", "ply", "glb", "gltf"],
+            key="cad_part_b",
+            help="Upload one watertight triangle-mesh solid.",
+        )
+        fit_button = st.button(
+            "Auto-fit parts",
+            use_container_width=True,
+            type="primary",
+            disabled=part_a_file is None or part_b_file is None,
+        )
+        st.caption(
+            "Suggests rigid placements only. Mesh dimensions are not changed; "
+            "STEP/IGES must first be exported as a mesh."
         )
 
     st.markdown("---")
@@ -224,13 +267,30 @@ st.markdown('<div class="hero-subtitle">PointNet++ Deep Learning for Mechanical 
 # ──────────────────────────────────────────────
 point_cloud = None
 labels = None
+cad_fit_metrics = None
 
 if input_mode == "Generate Sample":
     if "point_cloud" not in st.session_state:
         st.session_state.point_cloud = None
         st.session_state.labels = None
 
-    if generate_btn:
+    if "generated_params" not in st.session_state:
+        st.session_state.generated_params = None
+
+    current_params = {
+        "assembly_type": assembly_type,
+        "n_points": n_points,
+        "radial_dev": radial_dev,
+        "tilt_angle": tilt_angle,
+        "lateral_offset": lateral_offset,
+        "noise_std": noise_std,
+    }
+    params_changed = (
+        st.session_state.point_cloud is not None
+        and current_params != st.session_state.generated_params
+    )
+
+    if generate_btn or params_changed:
         from data.dataset_generator import AssemblyConfig, _compute_risk_labels
 
         cfg = AssemblyConfig(
@@ -261,16 +321,64 @@ if input_mode == "Generate Sample":
 
         st.session_state.point_cloud = pc
         st.session_state.labels = gt_labels
+        st.session_state.generated_params = current_params
 
     point_cloud = st.session_state.point_cloud
     labels = st.session_state.labels
 
-else:
+elif input_mode == "Upload Point Cloud":
     if uploaded_file is not None:
         point_cloud = np.load(uploaded_file).astype(np.float32)
         if point_cloud.ndim != 2 or point_cloud.shape[1] != 7:
             st.error(f"Expected shape (N, 7), got {point_cloud.shape}")
             point_cloud = None
+else:
+    if part_a_file is not None and part_b_file is not None:
+        data_a = part_a_file.getvalue()
+        data_b = part_b_file.getvalue()
+        fit_signature = (
+            part_a_file.name,
+            hashlib.sha256(data_a).hexdigest(),
+            part_b_file.name,
+            hashlib.sha256(data_b).hexdigest(),
+            cad_point_count,
+        )
+        if st.session_state.get("cad_fit_signature") != fit_signature:
+            st.session_state.cad_fit_signature = fit_signature
+            st.session_state.cad_fit_result = None
+
+        if fit_button:
+            try:
+                st.session_state.cad_fit_result = _auto_fit_cad_uploads(
+                    part_a_file.name,
+                    data_a,
+                    part_b_file.name,
+                    data_b,
+                    cad_point_count,
+                )
+            except Exception as exc:
+                st.session_state.cad_fit_result = None
+                st.sidebar.error(f"Automatic fitting failed: {exc}")
+
+        fit_result = st.session_state.get("cad_fit_result")
+        if fit_result is not None:
+            candidates = fit_result["candidates"]
+            candidate_names = [f"Candidate {index + 1}" for index in range(len(candidates))]
+            selected_name = st.sidebar.selectbox(
+                "Suggested Placement",
+                candidate_names,
+                key="cad_candidate_choice",
+            )
+            selected_candidate = candidates[candidate_names.index(selected_name)]
+            point_cloud = selected_candidate["point_cloud"]
+            cad_fit_metrics = selected_candidate["metrics"]
+            st.sidebar.success(
+                f"Showing {selected_name.lower()} from {len(candidates)} rigid candidates."
+            )
+            st.sidebar.caption(
+                "Risk indicators use sampled surfaces and voxel overlap. "
+                "They are estimates, not certified interference checks."
+            )
 
 
 # ──────────────────────────────────────────────
@@ -324,20 +432,17 @@ if point_cloud is not None:
             "failure_prob": float(model_preds["failure_prob"]),
             "risk_level": int(model_preds["risk_level"]),
         }
-        pred_source = "🧠 Model Prediction"
+        pred_source = "🧠 Model Estimate (synthetic)"
     elif labels is not None:
         display_preds = labels
-        pred_source = "📐 Ground Truth (from generator)"
+        pred_source = "📐 Synthetic Generator Labels"
     else:
-        # Estimate from geometry
-        display_preds = {
-            "interference_risk": 0.0,
-            "clearance_risk": 0.0,
-            "alignment_risk": 0.0,
-            "failure_prob": 0.0,
-            "risk_level": 0,
-        }
-        pred_source = "⚠️ No labels or model available"
+        display_preds = {}
+        pred_source = (
+            "📐 Geometry Fit Estimate"
+            if cad_fit_metrics is not None
+            else "⚠️ No risk estimate available"
+        )
 
     # ── Layout ──
     col_viz, col_risk = st.columns([3, 1])
@@ -364,106 +469,135 @@ if point_cloud is not None:
         info_cols[3].metric("View", view_mode.split(" ")[0])
 
     with col_risk:
-        st.markdown(f"#### {pred_source}")
+        if display_preds:
+            st.markdown(f"#### {pred_source}")
 
-        # Risk Level Badge
-        risk_level = display_preds.get("risk_level", 0)
-        risk_names = {0: "Low", 1: "Medium", 2: "High"}
-        risk_css = {0: "risk-low", 1: "risk-medium", 2: "risk-high"}
-        risk_name = risk_names.get(risk_level, "Unknown")
-        st.markdown(
-            f'<div style="text-align:center;">'
-            f'<div class="risk-badge {risk_css.get(risk_level, "")}">'
-            f'{risk_name} Risk</div></div>',
-            unsafe_allow_html=True,
-        )
-        st.markdown("")
+            risk_level = display_preds.get("risk_level", 0)
+            risk_names = {0: "Low", 1: "Medium", 2: "High"}
+            risk_css = {0: "risk-low", 1: "risk-medium", 2: "risk-high"}
+            risk_name = risk_names.get(risk_level, "Unknown")
+            st.markdown(
+                f'<div style="text-align:center;">'
+                f'<div class="risk-badge {risk_css.get(risk_level, "")}">'
+                f'{risk_name} Risk</div></div>',
+                unsafe_allow_html=True,
+            )
 
-        # Risk gauges
-        st.plotly_chart(
-            create_risk_gauge(display_preds.get("interference_risk", 0), "Interference"),
-            use_container_width=True, key="gauge_interf")
-        st.plotly_chart(
-            create_risk_gauge(display_preds.get("clearance_risk", 0), "Clearance"),
-            use_container_width=True, key="gauge_clear")
-        st.plotly_chart(
-            create_risk_gauge(display_preds.get("alignment_risk", 0), "Alignment"),
-            use_container_width=True, key="gauge_align")
+            st.plotly_chart(
+                create_risk_gauge(
+                    display_preds["interference_risk"], "Interference"),
+                use_container_width=True, key="gauge_interf")
+            st.plotly_chart(
+                create_risk_gauge(display_preds["clearance_risk"], "Clearance"),
+                use_container_width=True, key="gauge_clear")
+            st.plotly_chart(
+                create_risk_gauge(display_preds["alignment_risk"], "Alignment"),
+                use_container_width=True, key="gauge_align")
 
-        # Overall Failure Probability
-        fail_prob = display_preds.get("failure_prob", 0)
-        st.markdown(f"""
-        <div class="metric-card" style="text-align:center; margin-top:1rem;">
-            <div class="metric-label">Overall Failure Probability</div>
-            <div class="metric-value">{fail_prob:.1%}</div>
-        </div>
-        """, unsafe_allow_html=True)
+            fail_prob = display_preds["failure_prob"]
+            st.markdown(f"""
+            <div class="metric-card" style="text-align:center; margin-top:1rem;">
+                <div class="metric-label">Synthetic Failure Score</div>
+                <div class="metric-value">{fail_prob:.3f}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            st.caption(
+                "Model outputs reflect synthetic training targets; they are not "
+                "calibrated real-world failure probabilities."
+            )
+        else:
+            st.markdown(f"#### {pred_source}")
+            st.info(
+                "Model risk predictions are unavailable. Geometry fit indicators "
+                "are shown separately when a CAD fit is available."
+            )
+
+        if cad_fit_metrics is not None:
+            st.markdown("#### Geometry Fit Indicators")
+            st.metric(
+                "Estimated voxel overlap",
+                f"{cad_fit_metrics['voxel_overlap_percent']:.2f}%",
+            )
+            st.metric(
+                "Opposing-surface contact",
+                f"{cad_fit_metrics['opposing_contact_percent']:.1f}%",
+            )
+            st.metric(
+                "5th-percentile surface gap",
+                f"{cad_fit_metrics['surface_gap_p05']:.4g} mesh units",
+            )
+            st.caption(
+                "Overlap is estimated at the displayed voxel resolution; contact "
+                "and gap use sampled surfaces. These are geometric indicators, "
+                "not calibrated failure probabilities or tolerance checks."
+            )
 
     # ── Engineering Recommendations ──
-    st.markdown("---")
-    st.markdown("### 📋 Engineering Recommendations")
+    if display_preds:
+        st.markdown("---")
+        st.markdown("### 📋 Synthetic-Score Guidance")
 
-    rec_cols = st.columns(3)
-    interf = display_preds.get("interference_risk", 0)
-    clear = display_preds.get("clearance_risk", 0)
-    align = display_preds.get("alignment_risk", 0)
+        rec_cols = st.columns(3)
+        interf = display_preds.get("interference_risk", 0)
+        clear = display_preds.get("clearance_risk", 0)
+        align = display_preds.get("alignment_risk", 0)
 
-    with rec_cols[0]:
-        if interf > 0.66:
-            st.markdown(
-                '<div class="recommendation">⚠️ <b>Critical Interference:</b> '
-                'Material overlap detected at mating bore. Machining adjustment or '
-                'dimensional rework required before assembly.</div>',
-                unsafe_allow_html=True)
-        elif interf > 0.33:
-            st.markdown(
-                '<div class="recommendation">🔶 <b>Moderate Interference:</b> '
-                'Slight dimensional tightness. Verify tolerance stack-up; '
-                'consider selective assembly or thermal fitting.</div>',
-                unsafe_allow_html=True)
-        else:
-            st.markdown(
-                '<div class="recommendation">✅ <b>Interference OK:</b> '
-                'Mating dimensions within acceptable clearance fit range.</div>',
-                unsafe_allow_html=True)
+        with rec_cols[0]:
+            if interf > 0.66:
+                st.markdown(
+                    '<div class="recommendation">⚠️ <b>Critical Interference:</b> '
+                    'Material overlap detected at mating bore. Machining adjustment or '
+                    'dimensional rework required before assembly.</div>',
+                    unsafe_allow_html=True)
+            elif interf > 0.33:
+                st.markdown(
+                    '<div class="recommendation">🔶 <b>Moderate Interference:</b> '
+                    'Slight dimensional tightness. Verify tolerance stack-up; '
+                    'consider selective assembly or thermal fitting.</div>',
+                    unsafe_allow_html=True)
+            else:
+                st.markdown(
+                    '<div class="recommendation">✅ <b>Interference OK:</b> '
+                    'Mating dimensions within acceptable clearance fit range.</div>',
+                    unsafe_allow_html=True)
 
-    with rec_cols[1]:
-        if clear > 0.66:
-            st.markdown(
-                '<div class="recommendation">⚠️ <b>Excessive Clearance:</b> '
-                'Gap exceeds allowable limits. Risk of vibration and premature wear. '
-                'Consider shimming or re-machining.</div>',
-                unsafe_allow_html=True)
-        elif clear > 0.33:
-            st.markdown(
-                '<div class="recommendation">🔶 <b>Moderate Clearance:</b> '
-                'Slightly loose fit. Monitor for thermal expansion effects '
-                'and verify under operational loads.</div>',
-                unsafe_allow_html=True)
-        else:
-            st.markdown(
-                '<div class="recommendation">✅ <b>Clearance OK:</b> '
-                'Gap is within nominal tolerance band.</div>',
-                unsafe_allow_html=True)
+        with rec_cols[1]:
+            if clear > 0.66:
+                st.markdown(
+                    '<div class="recommendation">⚠️ <b>Excessive Clearance:</b> '
+                    'Gap exceeds allowable limits. Risk of vibration and premature wear. '
+                    'Consider shimming or re-machining.</div>',
+                    unsafe_allow_html=True)
+            elif clear > 0.33:
+                st.markdown(
+                    '<div class="recommendation">🔶 <b>Moderate Clearance:</b> '
+                    'Slightly loose fit. Monitor for thermal expansion effects '
+                    'and verify under operational loads.</div>',
+                    unsafe_allow_html=True)
+            else:
+                st.markdown(
+                    '<div class="recommendation">✅ <b>Clearance OK:</b> '
+                    'Gap is within nominal tolerance band.</div>',
+                    unsafe_allow_html=True)
 
-    with rec_cols[2]:
-        if align > 0.66:
-            st.markdown(
-                '<div class="recommendation">⚠️ <b>Severe Misalignment:</b> '
-                'Axis tilt and eccentricity beyond limits. Re-fixture and '
-                'realign before proceeding with assembly.</div>',
-                unsafe_allow_html=True)
-        elif align > 0.33:
-            st.markdown(
-                '<div class="recommendation">🔶 <b>Moderate Misalignment:</b> '
-                'Minor angular deviation detected. Verify datum references '
-                'and assembly fixtures.</div>',
-                unsafe_allow_html=True)
-        else:
-            st.markdown(
-                '<div class="recommendation">✅ <b>Alignment OK:</b> '
-                'Mating axis alignment within acceptable angular tolerance.</div>',
-                unsafe_allow_html=True)
+        with rec_cols[2]:
+            if align > 0.66:
+                st.markdown(
+                    '<div class="recommendation">⚠️ <b>Severe Misalignment:</b> '
+                    'Axis tilt and eccentricity beyond limits. Re-fixture and '
+                    'realign before proceeding with assembly.</div>',
+                    unsafe_allow_html=True)
+            elif align > 0.33:
+                st.markdown(
+                    '<div class="recommendation">🔶 <b>Moderate Misalignment:</b> '
+                    'Minor angular deviation detected. Verify datum references '
+                    'and assembly fixtures.</div>',
+                    unsafe_allow_html=True)
+            else:
+                st.markdown(
+                    '<div class="recommendation">✅ <b>Alignment OK:</b> '
+                    'Mating axis alignment within acceptable angular tolerance.</div>',
+                    unsafe_allow_html=True)
 
 else:
     # Landing state

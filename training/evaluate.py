@@ -17,7 +17,7 @@ import torch
 import torch.nn as nn
 from typing import Dict, List
 from sklearn.metrics import (
-    accuracy_score, f1_score, roc_auc_score,
+    accuracy_score, balanced_accuracy_score, f1_score, roc_auc_score,
     confusion_matrix, classification_report, mean_squared_error,
 )
 import matplotlib
@@ -83,6 +83,7 @@ def compute_metrics(preds: Dict[str, np.ndarray],
     y_pred = preds["risk_level"]
 
     metrics["classification_accuracy"] = accuracy_score(y_true, y_pred)
+    metrics["balanced_accuracy"] = balanced_accuracy_score(y_true, y_pred)
     metrics["f1_macro"] = f1_score(y_true, y_pred, average="macro", zero_division=0)
     metrics["f1_weighted"] = f1_score(y_true, y_pred, average="weighted", zero_division=0)
 
@@ -213,6 +214,7 @@ def evaluate(checkpoint_path: str = "checkpoints/best_model.pth",
     print("EVALUATION RESULTS")
     print(f"{'='*60}")
     print(f"\n  Classification Accuracy: {metrics['classification_accuracy']:.2%}")
+    print(f"  Balanced Accuracy:       {metrics['balanced_accuracy']:.4f}")
     print(f"  F1-Score (Macro):        {metrics['f1_macro']:.4f}")
     print(f"  F1-Score (Weighted):     {metrics['f1_weighted']:.4f}")
     print(f"\n  Regression RMSE:")
